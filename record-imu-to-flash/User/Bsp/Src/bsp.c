@@ -67,6 +67,7 @@ void bsp_init(void) {
               UART_PARITY_NONE, UART_HWCONTROL_NONE, UART_MODE_TX_RX);
     led_init();
     key_init();
+    rtc_init();
 }
 
 #ifdef USE_FULL_ASSERT

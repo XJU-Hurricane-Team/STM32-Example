@@ -28,9 +28,6 @@ void rtc_init(void) {
     HAL_StatusTypeDef res = HAL_OK;
     uint16_t bkp_flag = 0;
 
-    /* 检查Backup的标志位是否清除 */
-    bkp_flag = HAL_RTCEx_BKUPRead(&rtc_handle, RTC_BKP_DR1);
-
     rtc_handle.Instance = RTC;
     rtc_handle.Init.HourFormat = RTC_HOURFORMAT_24;
     rtc_handle.Init.AsynchPrediv = 0x7F;
@@ -39,6 +36,9 @@ void rtc_init(void) {
     rtc_handle.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
     rtc_handle.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
 
+    /* 检查Backup的标志位是否清除 */
+    bkp_flag = HAL_RTCEx_BKUPRead(&rtc_handle, RTC_BKP_DR0);
+
     res = HAL_RTC_Init(&rtc_handle);
 
 #ifdef DEBUG
@@ -46,13 +46,10 @@ void rtc_init(void) {
 #endif /* DEBUG */
 
     if ((bkp_flag != RTC_USE_LSE) && (bkp_flag != RTC_USE_LSI)) {
-        printf("RTC reseted! Reset to 1970-01-01 0:00:00\r\n");
-        time_t init_time = 0;
+        printf("RTC reseted! Reset to 2000-01-01 0:00:00\r\n");
+        time_t init_time = 946684800;
         rtc_set_time_t(&init_time);
     }
-
-    HAL_NVIC_SetPriority(RTC_Alarm_IRQn, 0xF, 0xF);
-    HAL_NVIC_EnableIRQ(RTC_Alarm_IRQn);
 }
 
 /**
@@ -74,6 +71,7 @@ void HAL_RTC_MspInit(RTC_HandleTypeDef *hrtc) {
     __HAL_RCC_RTC_ENABLE();
     __HAL_RCC_PWR_CLK_ENABLE();
     HAL_PWR_EnableBkUpAccess();
+    __HAL_RCC_RTC_ENABLE();
 
     RCC_OscInitTypeDef rcc_osc_initstruct;
     RCC_PeriphCLKInitTypeDef rcc_periphclk_initstruct;
@@ -96,7 +94,7 @@ void HAL_RTC_MspInit(RTC_HandleTypeDef *hrtc) {
         rcc_periphclk_initstruct.PeriphClockSelection = RCC_PERIPHCLK_RTC;
         rcc_periphclk_initstruct.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
         HAL_RCCEx_PeriphCLKConfig(&rcc_periphclk_initstruct);
-        HAL_RTCEx_BKUPWrite(hrtc, RTC_BKP_DR1, RTC_USE_LSI);
+        HAL_RTCEx_BKUPWrite(hrtc, RTC_BKP_DR0, RTC_USE_LSI);
     } else {
         rcc_osc_initstruct.OscillatorType = RCC_OSCILLATORTYPE_LSE;
         rcc_osc_initstruct.LSEState = RCC_LSE_ON;
@@ -106,7 +104,7 @@ void HAL_RTC_MspInit(RTC_HandleTypeDef *hrtc) {
         rcc_periphclk_initstruct.PeriphClockSelection = RCC_PERIPHCLK_RTC;
         rcc_periphclk_initstruct.RTCClockSelection = RCC_RTCCLKSOURCE_LSE;
         HAL_RCCEx_PeriphCLKConfig(&rcc_periphclk_initstruct);
-        HAL_RTCEx_BKUPWrite(hrtc, RTC_BKP_DR1, RTC_USE_LSE);
+        HAL_RTCEx_BKUPWrite(hrtc, RTC_BKP_DR0, RTC_USE_LSE);
     }
 }
 
@@ -117,31 +115,6 @@ static const uint8_t month_day_table[12] = {31, 28, 31, 30, 31, 30,
 #define IS_LEAP_YEAR(YEAR)                                                     \
     (((((YEAR) % 4 == 0) && ((YEAR) % 100) != 0) || ((YEAR) % 400 == 0)) ? 1   \
                                                                          : 0)
-
-/**
- * @brief 输入公历日期得到星期
- *
- * @param year 年
- * @param month 月
- * @param day 日
- * @return 0, 星期天; 1 ~ 6: 星期一 ~ 星期六
- * @note (起始时间为: 公元0年3月1日开始, 输入往后的任何日期,
- *       都可以获取正确的星期) 使用 基姆拉尔森计算公式 计算, 原理说明见此贴:
- *       https://www.cnblogs.com/fengbohello/p/3264300.html
- */
-uint8_t rtc_get_week(uint16_t year, uint8_t month, uint8_t day) {
-    uint8_t week = 0;
-
-    if (month < 3) {
-        month += 12;
-        --year;
-    }
-
-    week = (day + 1 + 2 * month + 3 * (month + 1) / 5 + year + (year >> 2) -
-            year / 100 + year / 400) %
-           7;
-    return week;
-}
 
 /**
  * @brief 获取时间戳
@@ -232,57 +205,6 @@ void rtc_set_time(const struct tm *_tm) {
     } else {
         HAL_RTC_DST_ClearStoreOperation(&rtc_handle);
     }
-}
-
-/**
- * @brief 获取闹钟时间戳
- *
- * @return 闹钟时间戳
- * @note F429有两个闹钟, 功能比较多. 为了与F1兼容,
- *       这里只是简单的获取闹钟A下一次提醒的时间戳
- */
-time_t rtc_get_alarm_t(void) {}
-
-/**
- * @brief 获取闹钟时间
- *
- * @return 闹钟时间结构体
- * @note F429有两个闹钟, 功能比较多. 为了与F1兼容,
- *       这里只是简单的获取闹钟A下一次提醒的时间
- */
-struct tm *rtc_get_alarm(void) {
-    if (__HAL_RTC_ALARM_GET_IT_SOURCE(&rtc_handle, RTC_IT_ALRA) != SET) {
-        /* 没有开启闹钟A中断 */
-        return NULL;
-    }
-}
-
-/**
- * @brief 设置闹钟时间戳
- *
- * @param _time 闹钟时间戳
- * @note F429有两个闹钟, 功能比较多. 为了与F1兼容,
- *       这里只是简单的设置闹钟A下一次提醒的时间戳
- */
-void rtc_set_alarm_t(const time_t *_time) {}
-
-/**
- * @brief 设置闹钟时间
- *
- * @param _tm 时间结构体
- * @note F429有两个闹钟, 功能比较多. 为了与F1兼容,
- *       这里只是简单的设置闹钟A下一次提醒的时间
- */
-void rtc_set_alarm(const struct tm *_tm) {}
-
-/**
- * @brief RTC闹钟事件回调
- *
- * @param hrtc RTC句柄
- */
-void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef *hrtc) {
-    UNUSED(hrtc);
-    printf("Alarm! \r\n");
 }
 
 /**

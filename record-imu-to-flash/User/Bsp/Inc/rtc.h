@@ -4,6 +4,7 @@
  * @brief   RTC时钟
  * @version 1.0
  * @date    2024-08-31
+ * @note    F4的RTC闹钟比较复杂, 建议使用HAL库的RTC闹钟函数配置
  */
 
 #ifndef __RTC_H
@@ -22,11 +23,5 @@ struct tm *rtc_get_time(void);
 
 void rtc_set_time_t(const time_t *_time);
 void rtc_set_time(const struct tm *_tm);
-
-time_t rtc_get_alarm_t(void);
-struct tm *rtc_get_alarm(void);
-
-void rtc_set_alarm_t(const time_t *_time);
-void rtc_set_alarm(const struct tm *_tm);
 
 #endif /* __RTC_H */
